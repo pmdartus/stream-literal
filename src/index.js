@@ -1,9 +1,13 @@
 /**
- * @typedef {{ __render(): string }} Template
+ * @typedef {{
+ *  [TEMPLATE_MARKER]: true,
+ *  strings: TemplateStringsArray,
+ *  values: Array<unknown>,
+ * }} TemplateResult
  */
 
 /**
- * @typedef {void | null | undefined | Template | Promise<Template> | Generator<Template> | AsyncGenerator<Template>} ComponentOutput
+ * @typedef {void | null | undefined | TemplateResult | Promise<TemplateResult> | Generator<TemplateResult> | AsyncGenerator<TemplateResult>} ComponentOutput
  */
 
 /**
@@ -11,117 +15,129 @@
  * @typedef {(props: P) => ComponentOutput} Component<P>
  */
 
-/**
- * Template literal cache. Tagged template literal are always invoked with the
- * same statics array, so we can cache the template function.
- * 
- * @type {WeakMap<ReadonlyArray<string>, Template>}
- */
-const TEMPLATE_CACHE = new WeakMap();
-
-const TEMPLATE_SYMBOL = Symbol("template");
-
-function isTemplate(value) {
-  return value && value[TEMPLATE_SYMBOL];
-}
+const TEMPLATE_MARKER = Symbol("template");
 
 /**
- * 
- * @param {ReadonlyArray<string>} statics 
- * @param  {Array<unknown>} dynamics
- *  
- * @returns {Template}
+ * Generate a template from a tagged template literal.
+ *
+ * @param {TemplateStringsArray} strings
+ * @param  {Array<unknown>} values
+ *
+ * @returns {TemplateResult}
  */
-function createTemplate(statics, ...dynamics) {
-  const tmpl = async function* () {
-    for (let i = 0; i < statics.length; i++) {
-      yield statics[i];
-      if (i < dynamics.length) {
-        const value = dynamics[i];
-
-        if (value === null || value === undefined) continue;
-
-        if (isTemplate(value)) {
-          yield* value();
-        } else {
-          yield value;
-        }
-      }
-    }
+export function html(strings, ...values) {
+  return {
+    [TEMPLATE_MARKER]: true,
+    strings,
+    values,
   };
-  tmpl[TEMPLATE_SYMBOL] = true;
-
-  return tmpl;
 }
 
 /**
- * 
- * @param {ReadonlyArray<string>} statics 
- * @param  {Array<unknown>} dynamics
- *  
- * @returns {Template}
+ * @typedef {null | undefined | number | string | bigint | symbol} PrimitiveValue
  */
-export function html(statics, ...dynamics) {
-  let tmpl = TEMPLATE_CACHE.get(statics);
-
-  // If the template is not in the cache, create it and add it to the cache.
-  if (tmpl === undefined) {
-    tmpl = createTemplate(statics, ...dynamics);
-    TEMPLATE_CACHE.set(statics, tmpl);
-  }
-
-  return tmpl;
-}
 
 /**
- * 
- * @param {Template} part
+ *
+ * @param {unknown} value
+ * @returns {value is PrimitiveValue}
  */
-async function* renderTemplate(part) {
-  if (isTemplate(part)) {
-    yield* part();
-  } else {
-    throw new Error("Invalid template.");
-  }
+function isPrimitive(value) {
+  return (
+    value === null || (typeof value !== "object" && typeof value !== "function")
+  );
 }
 
 /**
- * Turn a component output into an async generator of strings.
- * 
- * @param {ComponentOutput} value 
+ * @param {unknown} value
+ * @returns {value is Promise<unknown>}
+ */
+function isPromise(value) {
+  return value instanceof Promise;
+}
+
+/**
+ * @param {object} value
+ * @returns {value is Iterable<unknown>}
+ */
+function isIterable(value) {
+  return Symbol.iterator in value;
+}
+
+/**
+ * @param {object} value
+ * @returns {value is AsyncIterable<unknown>}
+ */
+function isAsyncIterable(value) {
+  return Symbol.asyncIterator in value;
+}
+
+/**
+ *
+ * @param {unknown} value
+ * @returns {value is TemplateResult}
+ */
+function isTemplateResult(value) {
+  return (
+    typeof value === "object" && value !== null && TEMPLATE_MARKER in value
+  );
+}
+
+/**
+ * @param {unknown} value
  * @returns {AsyncGenerator<string>}
  */
-async function* unwrapRenderOutput(value) {
-  if (value === null || value === undefined) {
+async function* renderValue(value) {
+  if (value === undefined || value === null) {
     return;
-  } else if (value instanceof Promise) {
-    const resolved = await value;
-    yield* renderTemplate(resolved);
-  } else if (typeof value === "object" && Symbol.iterator in value) {
-    for (const part of value) {
-      yield* renderTemplate(part);
+  } else if (isPrimitive(value)) {
+    const str = String(value);
+
+    // Don't emit empty strings.
+    if (str !== "") {
+      yield str;
     }
-  } else if (typeof value === "object" && Symbol.asyncIterator in value) {
-    for await (const part of value) {
-      yield* renderTemplate(part);
+  } else if (typeof value === "object") {
+    if (isPromise(value)) {
+      yield* renderValue(await value);
+    } else if (isIterable(value)) {
+      for (const item of value) {
+        yield* renderValue(item);
+      }
+    } else if (isAsyncIterable(value)) {
+      for await (const item of value) {
+        yield* renderValue(item);
+      }
+    } else if (isTemplateResult(value)) {
+      yield* renderTemplate(value);
     }
   } else {
-    yield* renderTemplate(value);
+    throw new Error(`Invalid template value: ${value}`);
   }
 }
 
 /**
- * Render a component to a readable stream.
- *
- * @template P
- * @param {Component<P>} component - The component to render.
- * @param {P} props - The props to pass to the component.
- *
- * @returns {ReadableStream<string>} A readable stream of the rendered component.
+ * @param {TemplateResult} template
+ * @returns {AsyncGenerator<string>}
  */
-export function render(component, props) {
-  const output = component(props);
-  const result = unwrapRenderOutput(output);
+async function* renderTemplate(template) {
+  const { strings, values } = template;
+  for (let i = 0; i < strings.length; i++) {
+    yield strings[i];
+
+    if (i < values.length) {
+      const value = values[i];
+      yield* renderValue(value);
+    }
+  }
+}
+
+/**
+ * @param {TemplateResult} value
+ * @returns {ReadableStream<string>}
+ */
+export function render(value) {
+  const result = renderTemplate(value);
 
   return new ReadableStream({
     async start(controller) {
