@@ -132,6 +132,65 @@ async function* renderTemplate(template) {
   }
 }
 
+const TEXT_MODE = 1;
+const ELEMENT_MODE = 2;
+const MODE_COMMENT = 3;
+
+const TEXT_PART = 1;
+const COMPONENT_PART = 2;
+const VALUE_PART = 3;
+
+/**
+ * TODO: Is it more efficient to use objects everywhere instead of a mix of string and objects?
+ * 
+ * @typedef {string} TextPart
+ * @typedef {{ kind: COMPONENT_PART, fn: Component, props: Record<string, any>  }} ComponentPart
+ * @typedef {{ kind: VALUE_PART, value: unknown  }} ValuePart
+ * 
+ * @typedef {TextPart | ComponentPart | ValuePart} TemplatePart
+ */
+
+/**
+ * @param {TemplateResult} template 
+ * @returns {TemplatePart[]}
+ * 
+ * TODO: This function only need to receive the static parts and not the values.
+ * 
+ */
+export function parseTemplate(template) {
+  const { strings } = template;
+
+  /** @type {TemplatePart[]} */
+  const root = [];
+
+  let mode = TEXT_MODE;
+  let buffer = '';
+
+  let current = root;
+
+  for (let i = 0; i < strings.length; i++) {
+    const string = strings[i];
+
+    for (let j = 0; j < string.length; j++) {
+      if (mode === TEXT_MODE) {
+        let cursor = j;
+        while (string[cursor] !== '<' && cursor < string.length) {
+          cursor++;
+        }
+
+        buffer += string.slice(j, cursor);
+        j = cursor;
+      }
+    }
+
+    if (buffer !== '') {
+      root.push(buffer);
+    }
+  }
+
+  return root;
+}
+
 /**
  * @param {TemplateResult} value
  * @returns {ReadableStream<string>}
