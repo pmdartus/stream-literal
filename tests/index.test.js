@@ -83,9 +83,7 @@ describe("render", () => {
     test("array templates", async () => {
       const items = ["foo", "bar"];
       const stream = render(
-        html`<ul>
-          ${items.map((item) => html`<li>${item}</li>`)}
-        </ul>`
+        html`<ul>${items.map((item) => html`<li>${item}</li>`)}</ul>`
       );
       await assertStreamEqual(stream, "<ul><li>foo</li><li>bar</li></ul>");
     });
@@ -108,9 +106,7 @@ describe("render", () => {
       })();
 
       const stream = render(
-        html`<ul>
-          ${iterable}
-        </ul>`
+        html`<ul>${iterable}</ul>`
       );
       await assertStreamEqual(stream, "<ul><li>foo</li><li>bar</li></ul>");
     });
@@ -135,35 +131,5 @@ describe("render", () => {
     const value = [1, [[2, 3], 4]];
     const stream = render(html`${value}`);
     await assertStreamEqual(stream, "1234");
-  });
-});
-
-describe.only("parseTemplate", () => {
-  test("text", async () => {
-    assert.deepStrictEqual(parseTemplate(html`Hello world!`), ["Hello world!"]);
-  });
-
-  test.only("values", async () => {
-    assert.deepStrictEqual(parseTemplate(html`${true}`), [
-      { kind: 3, value: true },
-    ]);
-    assert.deepStrictEqual(parseTemplate(html` - ${true}`), [
-      { kind: 3, value: true },
-    ]);
-    // assert.deepStrictEqual(parseTemplate(html`${true} - `), [
-    //   { kind: 3, value: true },
-    // ]);
-    // assert.deepStrictEqual(parseTemplate(html`${true} - ${false}`), [
-    //   { kind: 3, value: true },
-    //   " - ",
-    //   { kind: 3, value: false },
-    // ]);
-  });
-
-  test("component", async () => {
-    const Hello = () => html`<p>Hello world!</p>`;
-
-    const output = parseTemplate(html`<${Hello} />`);
-    console.log(output);
   });
 });

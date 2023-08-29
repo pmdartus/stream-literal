@@ -117,78 +117,68 @@ async function* renderValue(value) {
 }
 
 /**
- * @param {TemplateResult} template
+ * @param {TemplatePart[]} parts
+ * @param {unknown[]} values
  * @returns {AsyncGenerator<string>}
  */
-async function* renderTemplate(template) {
-  const { strings, values } = template;
-  for (let i = 0; i < strings.length; i++) {
-    yield strings[i];
-
-    if (i < values.length) {
-      const value = values[i];
-      yield* renderValue(value);
+async function* renderTemplateParts(parts, values) {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    switch (part.kind) {
+      case STATIC_PART:
+        yield part.value;
+        break;
+    
+      case VALUE_PART:
+        yield* renderValue(values[part.idx]);
+        break;
     }
   }
+}
+
+/**
+ * @param {TemplateResult} template 
+ * @returns {AsyncGenerator<string>}
+ */
+function renderTemplate(template) {
+  const { strings, values } = template;
+
+  const parts = parseTemplate(strings);
+  return renderTemplateParts(parts, values);
 }
 
 const TEXT_MODE = 1;
 const ELEMENT_MODE = 2;
 const MODE_COMMENT = 3;
 
-const TEXT_PART = 1;
-const COMPONENT_PART = 2;
-const VALUE_PART = 3;
+const STATIC_PART = 1;
+const VALUE_PART = 2;
 
 /**
- * TODO: Is it more efficient to use objects everywhere instead of a mix of string and objects?
+ * @typedef {{ kind: STATIC_PART, value: string }} StaticPart
+ * @typedef {{ kind: VALUE_PART, idx: number  }} ValuePart
  * 
- * @typedef {string} TextPart
- * @typedef {{ kind: COMPONENT_PART, fn: Component, props: Record<string, any>  }} ComponentPart
- * @typedef {{ kind: VALUE_PART, value: unknown  }} ValuePart
- * 
- * @typedef {TextPart | ComponentPart | ValuePart} TemplatePart
+ * @typedef {StaticPart | ValuePart} TemplatePart
  */
 
 /**
- * @param {TemplateResult} template 
+ * @param {TemplateStringsArray} strings 
  * @returns {TemplatePart[]}
- * 
- * TODO: This function only need to receive the static parts and not the values.
- * 
  */
-export function parseTemplate(template) {
-  const { strings } = template;
-
+export function parseTemplate(strings) {
   /** @type {TemplatePart[]} */
-  const root = [];
-
-  let mode = TEXT_MODE;
-  let buffer = '';
-
-  let current = root;
+  const parts = [];
 
   for (let i = 0; i < strings.length; i++) {
     const string = strings[i];
+    parts.push({ kind: STATIC_PART, value: string });
 
-    for (let j = 0; j < string.length; j++) {
-      if (mode === TEXT_MODE) {
-        let cursor = j;
-        while (string[cursor] !== '<' && cursor < string.length) {
-          cursor++;
-        }
-
-        buffer += string.slice(j, cursor);
-        j = cursor;
-      }
-    }
-
-    if (buffer !== '') {
-      root.push(buffer);
+    if (i < strings.length - 1) {
+      parts.push({ kind: VALUE_PART, idx: i });
     }
   }
 
-  return root;
+  return parts;
 }
 
 /**
